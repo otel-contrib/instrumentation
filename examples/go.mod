@@ -7,6 +7,7 @@ require (
 	go.opentelemetry.io/otel v0.14.0
 	go.opentelemetry.io/otel/exporters/stdout v0.14.0
 	go.opentelemetry.io/otel/sdk v0.14.0
+	gorm.io/driver/mysql v1.0.3
 )
 
 replace github.com/otel-contrib/instrumentation => ../
