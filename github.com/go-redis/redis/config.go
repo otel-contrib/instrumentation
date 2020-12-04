@@ -2,7 +2,6 @@ package redis
 
 import (
 	"github.com/go-redis/redis/extra/rediscmd"
-	"github.com/go-redis/redis/v8"
 	"go.opentelemetry.io/contrib"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric"
@@ -36,10 +35,10 @@ func (o OptionFunc) Apply(c *config) {
 }
 
 // SpanNameFormatter creates a custom span name from the operation and cmder interface.
-type SpanNameFormatter func(operation string, cmd redis.Cmder) string
+type SpanNameFormatter func(operation string, cmd Cmder) string
 
 // SpanNameFormatterPipeline creates a custom span name from the operation and cmder interface.
-type SpanNameFormatterPipeline func(operation string, cmds []redis.Cmder) string
+type SpanNameFormatterPipeline func(operation string, cmds []Cmder) string
 
 // WithTracerProvider specifies a tracer provider to use for creating a tracer.
 // If none is specified, the global provider is used.
@@ -115,11 +114,11 @@ func newConfig(opts ...Option) (*config, error) {
 	return c, nil
 }
 
-func defaultSpanNameFormatter(operation string, cmd redis.Cmder) string {
+func defaultSpanNameFormatter(operation string, cmd Cmder) string {
 	return cmd.FullName()
 }
 
-func defaultSpanNameFormatterPipeline(operation string, cmds []redis.Cmder) string {
+func defaultSpanNameFormatterPipeline(operation string, cmds []Cmder) string {
 	name, _ := rediscmd.CmdsString(cmds)
 	return "pipeline " + name
 }

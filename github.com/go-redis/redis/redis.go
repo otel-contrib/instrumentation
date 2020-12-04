@@ -16,8 +16,11 @@ import (
 // It's safe for concurrent use by multiple goroutines.
 type Client = redis.Client
 
+// Hook defines redis OpenTelemetry hook interface.
+type Hook = redis.Hook
+
 type otelHook struct {
-	redisOptions *redis.Options
+	redisOptions *Options
 
 	tracerProvider            trace.TracerProvider
 	meterProvider             metric.MeterProvider
@@ -32,17 +35,22 @@ type otelHook struct {
 
 type startTimeType struct{}
 
+const (
+	// Nil reply returned by Redis when key does not exist.
+	Nil = redis.Nil
+)
+
 var (
-	_ redis.Hook = &otelHook{}
+	_ Hook = &otelHook{}
 
 	startTimeContextKey = &startTimeType{}
 )
 
 // NewClient returns a client to the Redis Server specified by Options.
-func NewClient(opt *Options, opts ...Option) *redis.Client {
+func NewClient(opt *Options, opts ...Option) *Client {
 	c := redis.NewClient(opt)
 	if opts != nil {
-		h, err := newOTelHook(opt, opts...)
+		h, err := NewOTelHook(opt, opts...)
 		if err != nil {
 			panic(err)
 		}
@@ -51,7 +59,8 @@ func NewClient(opt *Options, opts ...Option) *redis.Client {
 	return c
 }
 
-func newOTelHook(opt *Options, opts ...Option) (redis.Hook, error) {
+// NewOTelHook returns hook that provides OpenTelemetry tracing and metrics to redis.
+func NewOTelHook(opt *Options, opts ...Option) (Hook, error) {
 	c, err := newConfig(opts...)
 	if err != nil {
 		return nil, err
@@ -70,7 +79,7 @@ func newOTelHook(opt *Options, opts ...Option) (redis.Hook, error) {
 	}, nil
 }
 
-func (o *otelHook) BeforeProcess(ctx context.Context, cmd redis.Cmder) (context.Context, error) {
+func (o *otelHook) BeforeProcess(ctx context.Context, cmd Cmder) (context.Context, error) {
 	start := time.Now()
 	ctx = context.WithValue(ctx, startTimeContextKey, start)
 
@@ -93,12 +102,12 @@ func (o *otelHook) BeforeProcess(ctx context.Context, cmd redis.Cmder) (context.
 	return ctx, nil
 }
 
-func (o *otelHook) AfterProcess(ctx context.Context, cmd redis.Cmder) error {
+func (o *otelHook) AfterProcess(ctx context.Context, cmd Cmder) error {
 	span := trace.SpanFromContext(ctx)
 	defer span.End()
 
 	if err := cmd.Err(); err != nil {
-		if err != redis.Nil {
+		if err != Nil {
 			span.RecordError(err)
 		}
 	}
@@ -114,7 +123,7 @@ func (o *otelHook) AfterProcess(ctx context.Context, cmd redis.Cmder) error {
 	return nil
 }
 
-func (o *otelHook) BeforeProcessPipeline(ctx context.Context, cmds []redis.Cmder) (context.Context, error) {
+func (o *otelHook) BeforeProcessPipeline(ctx context.Context, cmds []Cmder) (context.Context, error) {
 	start := time.Now()
 	ctx = context.WithValue(ctx, startTimeContextKey, start)
 
@@ -139,12 +148,12 @@ func (o *otelHook) BeforeProcessPipeline(ctx context.Context, cmds []redis.Cmder
 	return ctx, nil
 }
 
-func (o *otelHook) AfterProcessPipeline(ctx context.Context, cmds []redis.Cmder) error {
+func (o *otelHook) AfterProcessPipeline(ctx context.Context, cmds []Cmder) error {
 	span := trace.SpanFromContext(ctx)
 	defer span.End()
 
 	if err := cmds[0].Err(); err != nil {
-		if err != redis.Nil {
+		if err != Nil {
 			span.RecordError(err)
 		}
 	}
@@ -160,9 +169,9 @@ func (o *otelHook) AfterProcessPipeline(ctx context.Context, cmds []redis.Cmder)
 	return nil
 }
 
-func spanStatusFromCmder(cmd redis.Cmder) (codes.Code, string) {
+func spanStatusFromCmder(cmd Cmder) (codes.Code, string) {
 	if err := cmd.Err(); err != nil {
-		if err != redis.Nil {
+		if err != Nil {
 			return codes.Error, err.Error()
 		}
 		return codes.Unset, err.Error()
