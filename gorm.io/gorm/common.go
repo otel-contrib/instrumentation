@@ -6,8 +6,9 @@ const (
 )
 
 const (
-	hookNameBefore = "otel:before"
-	hookNameAfter  = "otel:after"
+	pluginName       = "gorm:otel"
+	pluginNameBefore = "gorm:otel:before"
+	pluginNameAfter  = "gorm:otel:after"
 )
 
 // Metrics semantic conventions

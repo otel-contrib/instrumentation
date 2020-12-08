@@ -23,7 +23,10 @@ type Config = gorm.Config
 // DB GORM DB definition
 type DB = gorm.DB
 
-type otelHook struct {
+// Plugin GORM plugin interface
+type Plugin = gorm.Plugin
+
+type otelPlugin struct {
 	tracerProvider    trace.TracerProvider
 	meterProvider     metric.MeterProvider
 	operationName     string
@@ -35,17 +38,10 @@ type otelHook struct {
 	metricDuration metric.Int64ValueRecorder
 }
 
-// OTelHook defines gorm OpenTelemetry hook interface.
-type OTelHook interface {
-	Before() func(*DB)
-	After() func(*DB)
-	Register(db *DB) error
-}
-
 type startTimeType struct{}
 
 var (
-	_ OTelHook = &otelHook{}
+	_ Plugin = &otelPlugin{}
 
 	startTimeContextKey = &startTimeType{}
 )
@@ -56,26 +52,29 @@ func Open(dialector Dialector, config *Config, opts ...Option) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	if opts == nil {
+		return db, nil
+	}
 
-	h, err := NewOTelHook(db, opts...)
+	plugin, err := NewOTelPlugin(db, opts...)
 	if err != nil {
 		return nil, err
 	}
-
-	if err := h.Register(db); err != nil {
+	if err := db.Use(plugin); err != nil {
 		return nil, err
 	}
+
 	return db, err
 }
 
-// NewOTelHook returns hook that provides OpenTelemetry tracing and metrics to gorm.
-func NewOTelHook(db *DB, opts ...Option) (OTelHook, error) {
+// NewOTelPlugin returns plugin that provides OpenTelemetry tracing and metrics to gorm.
+func NewOTelPlugin(db *DB, opts ...Option) (Plugin, error) {
 	c, err := newConfig(opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	h := &otelHook{
+	p := &otelPlugin{
 		tracerProvider:    c.tracerProvider,
 		meterProvider:     c.meterProvider,
 		operationName:     c.operationName,
@@ -85,9 +84,9 @@ func NewOTelHook(db *DB, opts ...Option) (OTelHook, error) {
 		metricDuration:    c.metricDuration,
 	}
 
-	switch dial := db.Dialector.(type) {
+	switch dialector := db.Dialector.(type) {
 	case *dialectmysql.Dialector:
-		cfg, err := mysql.ParseDSN(dial.DSN)
+		cfg, err := mysql.ParseDSN(dialector.DSN)
 		if err != nil {
 			return nil, err
 		}
@@ -97,21 +96,74 @@ func NewOTelHook(db *DB, opts ...Option) (OTelHook, error) {
 		if err != nil {
 			return nil, err
 		}
-		h.attrs = append(h.attrs, semconv.DBSystemMySQL)
-		h.attrs = append(h.attrs, semconv.DBConnectionStringKey.String(cfg.FormatDSN()))
-		h.attrs = append(h.attrs, semconv.DBUserKey.String(cfg.User))
-		h.attrs = append(h.attrs, semconv.NetPeerIPKey.String(netPeerIP))
-		h.attrs = append(h.attrs, semconv.NetPeerPortKey.Int(netPeerPort))
-		h.attrs = append(h.attrs, parseNetTransport(strings.ToLower(cfg.Net)))
-		h.attrs = append(h.attrs, semconv.DBNameKey.String(cfg.DBName))
+		p.attrs = append(p.attrs, semconv.DBSystemMySQL)
+		p.attrs = append(p.attrs, semconv.DBConnectionStringKey.String(cfg.FormatDSN()))
+		p.attrs = append(p.attrs, semconv.DBUserKey.String(cfg.User))
+		p.attrs = append(p.attrs, semconv.NetPeerIPKey.String(netPeerIP))
+		p.attrs = append(p.attrs, semconv.NetPeerPortKey.Int(netPeerPort))
+		p.attrs = append(p.attrs, parseNetTransport(cfg.Net))
+		p.attrs = append(p.attrs, semconv.DBNameKey.String(cfg.DBName))
 	default:
 		return nil, fmt.Errorf("unsupported dialector type")
 	}
 
-	return h, nil
+	return p, nil
 }
 
-func (o *otelHook) Before() func(*DB) {
+func (o *otelPlugin) Name() string {
+	return pluginName
+}
+
+func (o *otelPlugin) Initialize(db *DB) error {
+	before := o.before()
+	after := o.after()
+
+	if err := db.Callback().Create().Before("*").Register(pluginNameBefore, before); err != nil {
+		return err
+	}
+	if err := db.Callback().Create().After("*").Register(pluginNameAfter, after); err != nil {
+		return err
+	}
+
+	if err := db.Callback().Delete().Before("*").Register(pluginNameBefore, before); err != nil {
+		return err
+	}
+	if err := db.Callback().Delete().After("*").Register(pluginNameAfter, after); err != nil {
+		return err
+	}
+
+	if err := db.Callback().Query().Before("*").Register(pluginNameBefore, before); err != nil {
+		return err
+	}
+	if err := db.Callback().Query().After("*").Register(pluginNameAfter, after); err != nil {
+		return err
+	}
+
+	if err := db.Callback().Raw().Before("*").Register(pluginNameBefore, before); err != nil {
+		return err
+	}
+	if err := db.Callback().Raw().After("*").Register(pluginNameAfter, after); err != nil {
+		return err
+	}
+
+	if err := db.Callback().Row().Before("*").Register(pluginNameBefore, before); err != nil {
+		return err
+	}
+	if err := db.Callback().Row().After("*").Register(pluginNameAfter, after); err != nil {
+		return err
+	}
+
+	if err := db.Callback().Update().Before("*").Register(pluginNameBefore, before); err != nil {
+		return err
+	}
+	if err := db.Callback().Update().After("*").Register(pluginNameAfter, after); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (o *otelPlugin) before() func(*DB) {
 	return func(db *DB) {
 		start := time.Now()
 		ctx := context.WithValue(db.Statement.Context, startTimeContextKey, start)
@@ -126,7 +178,7 @@ func (o *otelHook) Before() func(*DB) {
 	}
 }
 
-func (o *otelHook) After() func(*DB) {
+func (o *otelPlugin) after() func(*DB) {
 	return func(db *DB) {
 		ctx := db.Statement.Context
 		span := trace.SpanFromContext(ctx)
@@ -156,52 +208,6 @@ func (o *otelHook) After() func(*DB) {
 	}
 }
 
-func (o *otelHook) Register(db *DB) error {
-	if err := db.Callback().Create().Before("*").Register(hookNameBefore, o.Before()); err != nil {
-		return err
-	}
-	if err := db.Callback().Create().After("*").Register(hookNameAfter, o.After()); err != nil {
-		return err
-	}
-
-	if err := db.Callback().Delete().Before("*").Register(hookNameBefore, o.Before()); err != nil {
-		return err
-	}
-	if err := db.Callback().Delete().After("*").Register(hookNameAfter, o.After()); err != nil {
-		return err
-	}
-
-	if err := db.Callback().Query().Before("*").Register(hookNameBefore, o.Before()); err != nil {
-		return err
-	}
-	if err := db.Callback().Query().After("*").Register(hookNameAfter, o.After()); err != nil {
-		return err
-	}
-
-	if err := db.Callback().Raw().Before("*").Register(hookNameBefore, o.Before()); err != nil {
-		return err
-	}
-	if err := db.Callback().Raw().After("*").Register(hookNameAfter, o.After()); err != nil {
-		return err
-	}
-
-	if err := db.Callback().Row().Before("*").Register(hookNameBefore, o.Before()); err != nil {
-		return err
-	}
-	if err := db.Callback().Row().After("*").Register(hookNameAfter, o.After()); err != nil {
-		return err
-	}
-
-	if err := db.Callback().Update().Before("*").Register(hookNameBefore, o.Before()); err != nil {
-		return err
-	}
-	if err := db.Callback().Update().After("*").Register(hookNameAfter, o.After()); err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func parseAddr(addr string) (string, int, error) {
 	i := strings.Index(addr, ":")
 	if i < 0 {
@@ -216,7 +222,7 @@ func parseAddr(addr string) (string, int, error) {
 }
 
 func parseNetTransport(network string) label.KeyValue {
-	switch network {
+	switch strings.ToLower(network) {
 	case "tcp", "tcp4", "tcp6":
 		return semconv.NetTransportTCP
 	case "udp", "udp4", "udp6":
