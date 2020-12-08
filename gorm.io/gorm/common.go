@@ -13,5 +13,5 @@ const (
 
 // Metrics semantic conventions
 const (
-	metricRedisClientDuration = "db.gorm.client.duration" // process time, milliseconds
+	metricGormClientDuration = "db.gorm.client.duration" // process time, milliseconds
 )

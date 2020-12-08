@@ -91,7 +91,7 @@ func newConfig(opts ...Option) (*config, error) {
 	)
 
 	c.metricDuration, err = c.meter.NewInt64ValueRecorder(
-		metricRedisClientDuration,
+		metricGormClientDuration,
 		metric.WithDescription("process time in milliseconds"),
 		metric.WithUnit(unit.Milliseconds),
 	)
