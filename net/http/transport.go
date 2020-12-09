@@ -36,10 +36,14 @@ var _ RoundTripper = &otelTransport{}
 
 // NewOTelTransport wraps the provided RoundTripper with one that starts a span and
 // injects the span context into the outbound request headers.
+// If none is specified, the DefaultTransport is used.
 func NewOTelTransport(rt RoundTripper, opts ...Option) (RoundTripper, error) {
 	c, err := newConfig(opts...)
 	if err != nil {
 		return nil, err
+	}
+	if rt == nil {
+		rt = DefaultTransport
 	}
 
 	o := &otelTransport{

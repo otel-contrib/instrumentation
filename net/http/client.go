@@ -15,25 +15,27 @@ import (
 type Client = http.Client
 
 // DefaultClient is the default Client and is used by Get, Head, and Post.
-var DefaultClient = NewClient(http.DefaultClient)
+var DefaultClient = mustClient(NewClient(http.DefaultClient))
 
 // RoundTripper is an interface representing the ability to execute a single HTTP transaction,
 // obtaining the Response for a given Request.
 type RoundTripper = http.RoundTripper
 
 // NewClient returns a client that provides OpenTelemetry tracing and metrics.
-func NewClient(c *Client, opts ...Option) *Client {
-	transport := c.Transport
-	if transport == nil {
-		transport = DefaultTransport
-	}
-
-	transport, err := NewOTelTransport(transport, opts...)
+func NewClient(c *Client, opts ...Option) (*Client, error) {
+	transport, err := NewOTelTransport(c.Transport, opts...)
 	if err != nil {
-		panic(err)
+		return c, err
 	}
 	c.Transport = transport
 
+	return c, nil
+}
+
+func mustClient(c *Client, err error) *Client {
+	if err != nil {
+		panic(err)
+	}
 	return c
 }
 
