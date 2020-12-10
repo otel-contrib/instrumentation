@@ -15,6 +15,8 @@ require (
 	github.com/ugorji/go v1.2.0 // indirect
 	go.opentelemetry.io/contrib v0.14.0
 	go.opentelemetry.io/otel v0.14.0
+	go.uber.org/multierr v1.6.0 // indirect
+	go.uber.org/zap v1.16.0
 	golang.org/x/crypto v0.0.0-20201124201722-c8d3bf9c5392 // indirect
 	golang.org/x/sys v0.0.0-20201130072748-111129e158e2 // indirect
 	google.golang.org/protobuf v1.25.0 // indirect
